@@ -43,6 +43,266 @@
   </style>
 </head>
 <body>
+  <script src="https://cdn.jsdelivr.net/npm/@ffmpeg/ffmpeg@0.11.6/dist/ffmpeg.min.js"></script>
+  <script>
+    (function () {
+      const state = {
+        ffmpeg: null,
+        loadPromise: null,
+      };
+
+      function b64ToUint8(base64) {
+        const bin = atob(base64);
+        const len = bin.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+      }
+
+      function uint8ToB64(bytes) {
+        let binary = '';
+        const chunk = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunk) {
+          binary += String.fromCharCode.apply(
+            null,
+            bytes.subarray(i, i + chunk)
+          );
+        }
+        return btoa(binary);
+      }
+
+      function rotationFilter(rotationDegrees) {
+        const normalized = ((rotationDegrees % 360) + 360) % 360;
+        if (normalized === 90) return 'transpose=1';
+        if (normalized === 180) return 'transpose=1,transpose=1';
+        if (normalized === 270) return 'transpose=2';
+        return null;
+      }
+
+      function chooseRecorderMimeType() {
+        const candidates = [
+          'video/webm;codecs=vp9,opus',
+          'video/webm;codecs=vp8,opus',
+          'video/webm',
+        ];
+        for (const type of candidates) {
+          if (window.MediaRecorder && MediaRecorder.isTypeSupported(type)) {
+            return type;
+          }
+        }
+        return '';
+      }
+
+      function waitForEvent(target, okEvent, errEvent) {
+        return new Promise((resolve, reject) => {
+          const onOk = () => {
+            cleanup();
+            resolve();
+          };
+          const onErr = (e) => {
+            cleanup();
+            reject(e);
+          };
+          const cleanup = () => {
+            target.removeEventListener(okEvent, onOk);
+            if (errEvent) target.removeEventListener(errEvent, onErr);
+          };
+          target.addEventListener(okEvent, onOk, { once: true });
+          if (errEvent) target.addEventListener(errEvent, onErr, { once: true });
+        });
+      }
+
+      async function trimWithMediaRecorder(inputBytes, startMs, endMs) {
+        if (!window.MediaRecorder) {
+          throw new Error('MediaRecorder is not supported in this browser.');
+        }
+
+        const sourceBlob = new Blob([inputBytes], { type: 'video/mp4' });
+        const sourceUrl = URL.createObjectURL(sourceBlob);
+        const video = document.createElement('video');
+        video.src = sourceUrl;
+        video.preload = 'auto';
+        video.muted = true;
+        video.playsInline = true;
+
+        try {
+          await waitForEvent(video, 'loadedmetadata', 'error');
+
+          const durationMs = Math.max(0, Math.round((video.duration || 0) * 1000));
+          const clipStartMs = Math.max(0, Math.min(Number(startMs || 0), durationMs));
+          const requestedEnd = Number(endMs || durationMs);
+          const clipEndMs = Math.max(
+            clipStartMs + 100,
+            Math.min(requestedEnd > clipStartMs ? requestedEnd : durationMs, durationMs)
+          );
+
+          const stream = video.captureStream();
+          const chunks = [];
+          const mimeType = chooseRecorderMimeType();
+          const recorder = mimeType
+            ? new MediaRecorder(stream, { mimeType })
+            : new MediaRecorder(stream);
+
+          recorder.ondataavailable = (event) => {
+            if (event.data && event.data.size > 0) chunks.push(event.data);
+          };
+
+          const recorderStopped = waitForEvent(recorder, 'stop', 'error');
+
+          video.currentTime = clipStartMs / 1000;
+          await waitForEvent(video, 'seeked', 'error');
+
+          recorder.start(100);
+          await video.play();
+
+          await new Promise((resolve) => {
+            const tick = () => {
+              if (video.currentTime * 1000 >= clipEndMs) {
+                resolve();
+                return;
+              }
+              requestAnimationFrame(tick);
+            };
+            requestAnimationFrame(tick);
+          });
+
+          video.pause();
+          if (recorder.state !== 'inactive') recorder.stop();
+          await recorderStopped;
+
+          const outBlob = new Blob(chunks, {
+            type: recorder.mimeType || mimeType || 'video/webm',
+          });
+          const outBytes = new Uint8Array(await outBlob.arrayBuffer());
+          const outUrl = URL.createObjectURL(outBlob);
+
+          return {
+            bytesBase64: uint8ToB64(outBytes),
+            objectUrl: outUrl,
+          };
+        } finally {
+          URL.revokeObjectURL(sourceUrl);
+        }
+      }
+
+      async function ensureLoaded() {
+        if (state.ffmpeg) return state.ffmpeg;
+        if (state.loadPromise) return state.loadPromise;
+
+        state.loadPromise = (async () => {
+          if (!window.FFmpeg || !window.FFmpeg.createFFmpeg) {
+            throw new Error('FFmpeg wasm runtime missing');
+          }
+          const ffmpeg = window.FFmpeg.createFFmpeg({
+            log: false,
+            corePath:
+                'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.0/dist/ffmpeg-core.js',
+          });
+          await ffmpeg.load();
+          state.ffmpeg = ffmpeg;
+          return ffmpeg;
+        })();
+
+        return state.loadPromise;
+      }
+
+      window.trimVideoWithFfmpegCallback = async function (
+        requestId,
+        inputBase64,
+        startMs,
+        endMs,
+        rotationDegrees
+      ) {
+        const inputBytes = b64ToUint8(inputBase64);
+        try {
+          const ffmpeg = await ensureLoaded();
+          const now = Date.now().toString();
+          const inputName = `input_${requestId}_${now}.mp4`;
+          const outputName = `output_${requestId}_${now}.mp4`;
+
+          ffmpeg.FS('writeFile', inputName, inputBytes);
+
+          const args = [
+            '-ss',
+            (Number(startMs || 0) / 1000).toFixed(3),
+          ];
+          if (Number(endMs) > Number(startMs)) {
+            args.push('-to', (Number(endMs) / 1000).toFixed(3));
+          }
+          args.push('-i', inputName);
+
+          const vf = rotationFilter(Number(rotationDegrees || 0));
+          if (vf) {
+            args.push('-vf', vf);
+          }
+
+          args.push(
+            '-c:v',
+            'libx264',
+            '-preset',
+            'veryfast',
+            '-crf',
+            '23',
+            '-c:a',
+            'aac',
+            '-movflags',
+            '+faststart',
+            outputName
+          );
+
+          await ffmpeg.run(...args);
+          const outputBytes = ffmpeg.FS('readFile', outputName);
+
+          const blob = new Blob([outputBytes], { type: 'video/mp4' });
+          const objectUrl = URL.createObjectURL(blob);
+
+          window.postMessage(
+            {
+              type: 'ffmpeg-trim-result',
+              requestId,
+              ok: true,
+              bytesBase64: uint8ToB64(outputBytes),
+              objectUrl,
+            },
+            '*'
+          );
+
+          try {
+            ffmpeg.FS('unlink', inputName);
+          } catch (_) {}
+          try {
+            ffmpeg.FS('unlink', outputName);
+          } catch (_) {}
+        } catch (err) {
+          try {
+            // Fallback path: still export a real trimmed clip even if ffmpeg fails
+            // (for example proxy_main/wasm runtime errors in some browsers).
+            const fallback = await trimWithMediaRecorder(inputBytes, startMs, endMs);
+            window.postMessage(
+              {
+                type: 'ffmpeg-trim-result',
+                requestId,
+                ok: true,
+                bytesBase64: fallback.bytesBase64,
+                objectUrl: fallback.objectUrl,
+              },
+              '*'
+            );
+          } catch (fallbackErr) {
+            window.postMessage(
+              {
+                type: 'ffmpeg-trim-result',
+                requestId,
+                ok: false,
+                error: `FFmpeg error: ${String(err)} | Fallback error: ${String(fallbackErr)}`,
+              },
+              '*'
+            );
+          }
+        }
+      };
+    })();
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
