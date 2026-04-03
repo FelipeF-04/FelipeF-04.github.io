@@ -46,9 +46,7 @@ A modern social fitness app built with **Flutter** that combines community engag
 
 See the AI analysis in action with these sample exercise videos:
 
-- **[1](vid/1.MOV)** 
-- **[2](vid/2.mp4)** 
-- **[3](vid/3.mp4)** 
+
 
 ---
 
