@@ -50,7 +50,7 @@ https://github.com/user-attachments/assets/dc865640-8db1-499b-83bb-4ecc81d7c84f
 
 ---
 
-## �📱 Platform Support
+## 📱 Platform Support
 
 - Web (Progressive Web App)
 - Android
