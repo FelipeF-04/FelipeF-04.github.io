@@ -48,6 +48,8 @@ See the AI analysis in action with these sample exercise videos:
 
 https://github.com/user-attachments/assets/dc865640-8db1-499b-83bb-4ecc81d7c84f 
 
+https://github.com/user-attachments/assets/2d0cd1c2-8375-48b5-9a2d-07a2211c3308
+
 ---
 
 ## 📱 Platform Support
