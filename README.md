@@ -54,5 +54,5 @@ https://github.com/user-attachments/assets/2d0cd1c2-8375-48b5-9a2d-07a2211c3308
 
 ## 📱 Platform Support
 
-- Web (Progressive Web App)
+- Web 
 - Android
