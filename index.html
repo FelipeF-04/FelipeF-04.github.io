@@ -93,6 +93,28 @@
         return '';
       }
 
+      function detectVideoMimeType(bytes) {
+        if (bytes && bytes.length >= 12) {
+          const isMp4Ftyp =
+            bytes[4] === 0x66 && // f
+            bytes[5] === 0x74 && // t
+            bytes[6] === 0x79 && // y
+            bytes[7] === 0x70; // p
+          if (isMp4Ftyp) return 'video/mp4';
+        }
+
+        if (bytes && bytes.length >= 4) {
+          const isWebm =
+            bytes[0] === 0x1a &&
+            bytes[1] === 0x45 &&
+            bytes[2] === 0xdf &&
+            bytes[3] === 0xa3;
+          if (isWebm) return 'video/webm';
+        }
+
+        return 'application/octet-stream';
+      }
+
       function waitForEvent(target, okEvent, errEvent) {
         return new Promise((resolve, reject) => {
           const onOk = () => {
@@ -117,7 +139,9 @@
           throw new Error('MediaRecorder is not supported in this browser.');
         }
 
-        const sourceBlob = new Blob([inputBytes], { type: 'video/mp4' });
+        const sourceBlob = new Blob([inputBytes], {
+          type: detectVideoMimeType(inputBytes),
+        });
         const sourceUrl = URL.createObjectURL(sourceBlob);
         const video = document.createElement('video');
         video.src = sourceUrl;
@@ -156,8 +180,17 @@
           await video.play();
 
           await new Promise((resolve) => {
+            const maxWaitMs = Math.max(4000, clipEndMs - clipStartMs + 15000);
+            const startedAt = performance.now();
             const tick = () => {
-              if (video.currentTime * 1000 >= clipEndMs) {
+              const positionMs = video.currentTime * 1000;
+              // Account for browser time precision near EOF and always finish
+              // if playback has ended to avoid a stuck export.
+              if (positionMs >= clipEndMs - 80 || video.ended) {
+                resolve();
+                return;
+              }
+              if (performance.now() - startedAt >= maxWaitMs) {
                 resolve();
                 return;
               }
@@ -193,14 +226,30 @@
           if (!window.FFmpeg || !window.FFmpeg.createFFmpeg) {
             throw new Error('FFmpeg wasm runtime missing');
           }
-          const ffmpeg = window.FFmpeg.createFFmpeg({
-            log: false,
-            corePath:
-                'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.0/dist/ffmpeg-core.js',
-          });
-          await ffmpeg.load();
-          state.ffmpeg = ffmpeg;
-          return ffmpeg;
+
+          const coreCandidates = [
+            'https://cdn.jsdelivr.net/npm/@ffmpeg/core@0.11.0/dist/ffmpeg-core.js',
+            'https://cdn.jsdelivr.net/npm/@ffmpeg/core-st@0.11.0/dist/ffmpeg-core.js',
+          ];
+
+          let lastError = null;
+          for (const corePath of coreCandidates) {
+            try {
+              const ffmpeg = window.FFmpeg.createFFmpeg({
+                log: false,
+                corePath,
+              });
+              await ffmpeg.load();
+              state.ffmpeg = ffmpeg;
+              return ffmpeg;
+            } catch (err) {
+              lastError = err;
+            }
+          }
+
+          throw new Error(
+            `Failed to load FFmpeg core from all candidates: ${String(lastError)}`
+          );
         })();
 
         return state.loadPromise;
@@ -243,6 +292,16 @@
             'veryfast',
             '-crf',
             '23',
+            '-pix_fmt',
+            'yuv420p',
+            '-g',
+            '30',
+            '-keyint_min',
+            '30',
+            '-sc_threshold',
+            '0',
+            '-force_key_frames',
+            'expr:gte(t,n_forced*1)',
             '-c:a',
             'aac',
             '-movflags',
