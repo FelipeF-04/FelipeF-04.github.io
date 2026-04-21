@@ -46,13 +46,13 @@ A modern social fitness app built with **Flutter** that combines community engag
 
 See the AI analysis in action with these sample exercise videos:
 
-https://github.com/user-attachments/assets/dc865640-8db1-499b-83bb-4ecc81d7c84f 
+https://github.com/user-attachments/assets/e957d47e-26db-491b-b65c-905273f3b1ea
 
 https://github.com/user-attachments/assets/2d0cd1c2-8375-48b5-9a2d-07a2211c3308
 
 https://github.com/user-attachments/assets/80553ea3-0d45-4ec6-95d0-5a56a12c58b3
 
-https://github.com/user-attachments/assets/d8d5d087-d269-4fc2-ab5d-4d5e6761c6d2
+https://github.com/user-attachments/assets/89b5402b-4d90-4e1f-89cc-73189290db3f
 
 ---
 
