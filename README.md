@@ -42,6 +42,15 @@ A modern social fitness app built with **Flutter** that combines community engag
 
 ---
 
+## 📲 Example UI 
+
+See how the application processes your video and presents the analysis.
+
+https://github.com/user-attachments/assets/f4e7f5cf-48db-4961-929c-1091873a140f
+
+
+---
+
 ## 📹 Example Grading Videos
 
 See the AI analysis in action with these sample exercise videos:
