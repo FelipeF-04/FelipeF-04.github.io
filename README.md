@@ -46,8 +46,7 @@ A modern social fitness app built with **Flutter** that combines community engag
 
 See how the application processes your video and presents the analysis.
 
-https://github.com/user-attachments/assets/f4e7f5cf-48db-4961-929c-1091873a140f
-
+https://github.com/user-attachments/assets/f335eb5e-29e6-4b35-aac9-28a31263e720
 
 ---
 
